@@ -27,16 +27,18 @@ DcLoad dcLoad = DcLoad(LCD_I2C_ADDRESS, DAC_I2C_ADDRESS, ADC_I2C_ADDRESS,
                        USER_SETTING_PIN, FAN_PIN, TEMPERATURE_ADDR,
                        FAN_TEMP_MIN, FAN_TEMP_MAX);
 
-void interruptSubRoutine(){
+void isr(){
+  Serial.println ("isr() called");
   dcLoad.setRotaryEncoderPosition();
+  Serial.println ("isr() called2");
 }
 
 void setup() {
+  Serial.begin(9600);
+  // attach the intrupt sub routine to ROTARY_ENCODER_PIN_A
+  attachInterrupt(digitalPinToInterrupt(ROTARY_ENCODER_PIN_A), isr, LOW);
   // setup the dc load and set the initial mode to Constant Current(1)
   dcLoad.setup(1,3000);
-  // attach the intrupt sub routine to ROTARY_ENCODER_PIN_A
-  attachInterrupt(digitalPinToInterrupt(ROTARY_ENCODER_PIN_A),
-                  interruptSubRoutine, LOW);
 }
 
 void loop() {

@@ -33,10 +33,10 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   // set cursor/encoder control properties
   _cursorFactor = 0;
   _cursorPosition = 8;
+  _cursorPositionPrevious = 8;
   _encoderPosition = 0;
   _encoderMax = 9000;
-  _encoderReading = 0;
-  _encoderPreviousReading = 0;
+  _encoderPositionPrevious = -1;
   // set voltage and current properties
   _current = 0;
   _voltage = 0;
@@ -66,6 +66,10 @@ void DcLoad::setup(int initialOperatingMode, int welcomeDisplayMs){
   _setOperatingMode(initialOperatingMode);
   // update the display to show the operating mode
   _lcdOperatingMode();
+  //encoder readings
+  _lcdUpdateEncoderReading();
+  //set the cursor position
+  _lcdSetCursor();
   // display the load status
   _lcdLoadStatus();
   // set the DAC control voltage and send it to the DAC
@@ -80,6 +84,8 @@ void DcLoad::run(){
   _switchOperatingMode();
   // update the encoder reading
   _lcdUpdateEncoderReading();
+  //set the cursor position
+  _lcdSetCursor();
   // get the voltage and current readings from the ADC
   _getAdcVolatgeAndCurrent();
   // update the voltage, current and power values on the display
@@ -220,8 +226,12 @@ void DcLoad::_setDacControlVoltage(){
 void DcLoad::_fanControl() {
   // read the temperature
   _fanTemp = analogRead(_temperatureAddr);
+  Serial.print("TempRaw: ");
+  Serial.println(_fanTemp);
   // convert to Celsius
   _fanTemp = _fanTemp * 0.107421875;
+  Serial.print("Temp C: ");
+  Serial.println(_fanTemp);
   if (_fanTemp < _fanTempMin) {
     // if temperature is lower than the minimum temperature, turn the fan off
     _fanSpeed = 0;
@@ -252,23 +262,32 @@ void DcLoad::_fanControl() {
  */
 void DcLoad::_switchOperatingMode(){
   // check if Constant Current button pressed
+  boolean changed = false;
   if(digitalRead(_currentPin) == LOW) {
     _setOperatingMode(1);
+    changed=true;
   }
   // check if Constant Power button pressed
   if(digitalRead(_powerPin) == LOW) {
     _setOperatingMode(2);
+    changed=true;
   }
   // check if Constant Resistance button pressed
   if(digitalRead(_resistancePin) == LOW) {
     _setOperatingMode(3);
+    changed=true;
   }
-  _lcdOperatingMode();
+  if (changed){
+      _encoderPosition = 0;
+      _encoderPositionPrevious = -1;
+      _lcdOperatingMode();
+  }
 }
 
 void DcLoad::_setCursorPosition() {
   if (digitalRead(_cursorPositionPin) == LOW) {
     delay(10);  //simple key bounce delay
+    _cursorPositionPrevious = _cursorPosition;
     _cursorPosition = _cursorPosition + 1;
   }
   if (_cursorPosition > 11){
@@ -324,22 +343,22 @@ void DcLoad::_lcdOperatingMode(){
 void DcLoad::_lcdUpdateEncoderReading(){
   // only update the display if the _encoderReading has changed from it's
   // last setting
-  if (_encoderReading != _encoderPreviousReading) {
+  if (_encoderPosition != _encoderPositionPrevious) {
     // start position of setting cusor position (indicates which digit will change)
     _lcd->setCursor(8,1);
     // ensure leading zero's are displayed
-    if (_encoderReading < 10) {
+    if (_encoderPosition < 10) {
       _lcd->print("000");
-    } else if(_encoderReading < 100 ) {
+    } else if(_encoderPosition < 100 ) {
       _lcd->print("00");
-    } else if (_encoderReading < 1000) {
+    } else if (_encoderPosition < 1000) {
       _lcd->print("0");
     }
     //
-    _lcd->print (_encoderReading);
+    _lcd->print (_encoderPosition);
     // store the new value of _encoderReading in _encoderPreviousReading
     // for the next check
-    _encoderPreviousReading = _encoderReading;
+    _encoderPositionPrevious = _encoderPosition;
   }
 }
 
@@ -395,6 +414,11 @@ void DcLoad::_lcdTemperatureStatus(){
       break;
   }
 
+}
+
+void DcLoad::_lcdSetCursor(){
+    _lcd->setCursor(_cursorPosition,1);
+    _lcd->cursor();
 }
 
 // helper methods

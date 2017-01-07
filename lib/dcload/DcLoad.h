@@ -42,6 +42,7 @@ class DcLoad {
     void _lcdUpdateAdcReading();
     void _lcdLoadStatus();
     void _lcdTemperatureStatus();
+    void _lcdSetCursor();
     // helper methods
     float _convertAdcVoltageOrCurrent(long inputValue, int multiplier);
     // PRIVATE PROPERTIES
@@ -66,11 +67,11 @@ class DcLoad {
     byte _temperatureAddr;
     // cursor/encoder control properties
     int _cursorPosition;
+    int _cursorPositionPrevious;
     volatile unsigned long _cursorFactor;
     volatile unsigned long _encoderMax;
     volatile unsigned long _encoderPosition;
-    volatile unsigned int _encoderReading;
-    volatile unsigned int _encoderPreviousReading;
+    volatile unsigned int _encoderPositionPrevious;
     // fan control properties
     int _fanTemp;
     int _fanSpeed;

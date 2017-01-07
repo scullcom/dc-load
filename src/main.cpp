@@ -13,7 +13,7 @@ const byte USER_SETTING_PIN = 10;    // unused pin?
 
 const byte FAN_PIN = 2;              // digital pin 2 for fan control output
 const byte TEMPERATURE_ADDR = A0;    // address of the temperature output from LM35
-const int FAN_TEMP_MIN = 10;         // temperature at which to start the fan
+const int FAN_TEMP_MIN = 20;         // temperature at which to start the fan
 const int FAN_TEMP_MAX = 50;         // maximum temperature when fan speed at 100%
 
 const uint8_t ADC_I2C_ADDRESS = 0x68; // the I2C address of the ADC (MCP3426: 0x68 is the default)
@@ -28,9 +28,7 @@ DcLoad dcLoad = DcLoad(LCD_I2C_ADDRESS, DAC_I2C_ADDRESS, ADC_I2C_ADDRESS,
                        FAN_TEMP_MIN, FAN_TEMP_MAX);
 
 void isr(){
-  Serial.println ("isr() called");
   dcLoad.setRotaryEncoderPosition();
-  Serial.println ("isr() called2");
 }
 
 void setup() {

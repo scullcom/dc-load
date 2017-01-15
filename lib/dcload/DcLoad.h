@@ -6,15 +6,18 @@
 #include "LiquidCrystal_I2C.h"
 #include "Adafruit_MCP4725.h"
 #include "MCP342x.h"
+#include "LM35.h"
+#include "FanController.h"
+#include "MCP79410_Timer.h"
 
 class DcLoad {
   public:
     DcLoad (uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
-            uint8_t adcI2cAddress,byte rotaryEncoderPinA,
+            uint8_t adcI2cAddress, uint8_t timerAddress, byte rotaryEncoderPinA,
             byte rotaryEncoderPinB, byte cursorPositionPin,
             byte loadTogglePin,byte currentPin,
             byte resistancePin, byte powerPin,
-            byte userSettingPin, byte fanPin,
+            byte battaryPin, byte fanPin,
             byte temperatureAddr, int fanTempMin,
             int fanTempMax);
     void setup(int initialOperatingMode, int welcomeDisplayMs);
@@ -35,6 +38,8 @@ class DcLoad {
     void _switchOperatingMode();
     void _setCursorPosition();
     void _toggleLoad();
+    void _loadOn();
+    void _loadOff();
     // lcd methods
     void _lcdWelcome(int displayMs);
     void _lcdOperatingMode();
@@ -50,6 +55,9 @@ class DcLoad {
     LiquidCrystal_I2C* _lcd;
     Adafruit_MCP4725 _dac;
     MCP342x _adc;
+    LM35 _tempSensor;
+    FanController _fanController;
+    MCP79410_Timer _timer;
     // i2c addresses
     uint8_t _lcdI2cAddress;
     uint8_t _dacI2cAddress;
@@ -62,7 +70,7 @@ class DcLoad {
     byte _currentPin;
     byte _resistancePin;
     byte _powerPin;
-    byte _userSettingPin;
+    byte _battaryPin;
     byte _fanPin;
     byte _temperatureAddr;
     // cursor/encoder control properties
@@ -70,7 +78,8 @@ class DcLoad {
     int _cursorPositionPrevious;
     volatile unsigned long _cursorFactor;
     volatile unsigned long _encoderMax;
-    volatile unsigned long _encoderPosition;
+    volatile float _encoderPosition;
+    float _encoderReading;
     volatile unsigned int _encoderPositionPrevious;
     // fan control properties
     int _fanTemp;
@@ -84,7 +93,7 @@ class DcLoad {
     float _actualVoltage;
     float _actualCurrent;
     float _actualPower;
-    unsigned long _dacControlVoltage;
+    float _dacControlVoltage;
     float _currentCalibrationFactor;
     float _dacInputRange;
     float _dacVref;
@@ -93,6 +102,8 @@ class DcLoad {
     // properties to store the operating mode
     //and assiociated values
     int _operatingMode;
+    String _operatingModeOn;
+    String _operatingModeOff;
     String _operatingModeDisplay;
     String _operatingModeUnit;
     String _operatingModeSetting;

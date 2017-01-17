@@ -34,10 +34,12 @@ class DcLoad {
     void _getAdcVolatgeAndCurrent();
     void _setDacControlVoltage();
     void _fanControl();
+    void _calculateBatteryLife();
     // event handlers
     void _switchOperatingMode();
     void _setCursorPosition();
     void _toggleLoad();
+    void _toggleTimer();
     void _loadOn();
     void _loadOff();
     // lcd methods
@@ -48,6 +50,8 @@ class DcLoad {
     void _lcdLoadStatus();
     void _lcdTemperatureStatus();
     void _lcdSetCursor();
+    void _lcdDisplayBatteryLife();
+    void _lcdDisplayTime();
     // helper methods
     float _convertAdcVoltageOrCurrent(long inputValue, int multiplier);
     // PRIVATE PROPERTIES
@@ -107,7 +111,10 @@ class DcLoad {
     String _operatingModeDisplay;
     String _operatingModeUnit;
     String _operatingModeSetting;
-
+    //battery capacity values;
+    float _batteryCutOff;
+    float _batteryLife;
+    float _batteryLifePrevious;
 };
 
 #endif

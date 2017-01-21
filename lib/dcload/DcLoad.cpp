@@ -29,8 +29,8 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
 
   // set cursor/encoder control properties
   _cursorFactor = 0;
-  _cursorPosition = 8;
-  _cursorPositionPrevious = 8;
+  _cursorPosition = 9;
+  _cursorPositionPrevious = 9;
   _encoderPosition = 0;
   _encoderReading = 0;
   _encoderMax = 50000;
@@ -381,7 +381,7 @@ void DcLoad::_setCursorPosition() {
     }
   }
   if (_cursorPosition > 13){
-    _cursorPosition = 8;
+    _cursorPosition = 9;
   }
   if (_cursorPosition == 13){
     _cursorFactor = 1;
@@ -394,9 +394,6 @@ void DcLoad::_setCursorPosition() {
   }
   if (_cursorPosition == 9) {
     _cursorFactor = 1000;
-  }
-  if (_cursorPosition == 8) {
-    _cursorFactor = 10000;
   }
 }
 

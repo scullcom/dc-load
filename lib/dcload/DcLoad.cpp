@@ -1,12 +1,12 @@
 #include "DcLoad.h"
 
 DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
-        uint8_t adcI2cAddress, uint8_t timerAddress, byte rotaryEncoderPinA,
-        byte rotaryEncoderPinB, byte cursorPositionPin,
-        byte loadTogglePin,byte currentPin,
-        byte resistancePin, byte powerPin,
-        byte battaryPin, byte fanPin,
-        byte temperatureAddr, int fanTMin, int fanTMax){
+              uint8_t adcI2cAddress, uint8_t timerAddress,
+              byte rotaryEncoderPinA, byte rotaryEncoderPinB,
+              byte cursorPositionPin, byte loadTogglePin,
+              byte calibratePin, byte modeSelectPin,
+              byte fanPin, byte temperatureAddr,
+              int fanTMin, int fanTMax){
   // store the inputs as private properities
   _dacI2cAddress = dacI2cAddress;
   // create instances of the LCD, DAC, ADC, LM35 and FanController for use by DcLoad
@@ -22,10 +22,8 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   _rotaryEncoderPinB = rotaryEncoderPinB;
   _cursorPositionPin = cursorPositionPin;
   _loadTogglePin = loadTogglePin;
-  _currentPin = currentPin;
-  _resistancePin = resistancePin;
-  _powerPin = powerPin;
-  _battaryPin = battaryPin;
+  _calibratePin = calibratePin;
+  _modeSelectPin = modeSelectPin;
 
   // set cursor/encoder control properties
   _cursorFactor = 0;
@@ -38,6 +36,8 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   // set voltage and current properties
   _current = 0;
   _voltage = 0;
+  _currentOffset = 0;
+  _voltageOffset = 0;
   _dacControlVoltage = 0;
   _dacInputRange = 5000;
   _dacVref = 4096;
@@ -79,7 +79,7 @@ void DcLoad::setup(int initialOperatingMode, int welcomeDisplayMs){
   // update the display to show the operating mode
   _lcdOperatingMode();
   //encoder readings
-  _lcdUpdateEncoderReading();
+  _lcdUpdateEncoderReading(false);
   //set the cursor position
   _lcdSetCursor();
   // display the load status
@@ -93,11 +93,13 @@ void DcLoad::setup(int initialOperatingMode, int welcomeDisplayMs){
 }
 
 void DcLoad::run(){
+  // check if the caalibration button has been pressed
+  _calibrate();
   // check if the operating mode has been changed and update
   // the display if required
   _switchOperatingMode();
   // update the encoder reading
-  _lcdUpdateEncoderReading();
+  _lcdUpdateEncoderReading(false);
   //set the cursor position
   _lcdSetCursor();
   // get the voltage and current readings from the ADC
@@ -113,7 +115,7 @@ void DcLoad::run(){
   if (_safetyStatus == 0) {
     // Operating within safety parameters
     // Update the safety status if required
-    _lcdSafteyStatus();
+    //_lcdSafteyStatus();
     // Batter Capacity specific actions
     if (_operatingMode == 4){
       //Clear the battery wanring from the lcd if required
@@ -134,12 +136,13 @@ void DcLoad::run(){
   } else{
     // DC load is outside of safe limits, turn off and display warning
     _loadOff();
-    _lcdSafteyStatus();
   }
-  // store the last safteyStatus for comparison
-  _safetyStatusPervious = _safetyStatus;
   // send the control voltage to the DAC
   _setDacControlVoltage();
+  // display load saftey status if required
+  _lcdSafteyStatus();
+  // store the last safteyStatus for comparison
+  _safetyStatusPervious = _safetyStatus;
   // check the temperature, start fan if required and output to display
   _fanControl();
 }
@@ -161,10 +164,10 @@ void DcLoad::setRotaryEncoderPosition(){
 }
 
 void DcLoad::setSafetyLimits(float voltage, float current, float power,
-                     float temperature, float batterCurrent){
+                     float temperature, float batteryCurrent){
    _tempMax = temperature;
    _powerMax = power;
-   _batteryMaxCurrent = batterCurrent;
+   _batteryMaxCurrent = batteryCurrent;
    _voltsMax = voltage;
    _currentMax = current;
 }
@@ -195,10 +198,8 @@ void DcLoad::_setupPins(){
   pinMode (_rotaryEncoderPinB, INPUT);
   pinMode (_loadTogglePin, INPUT_PULLUP);
   pinMode (_cursorPositionPin, INPUT_PULLUP);
-  pinMode (_currentPin, INPUT_PULLUP);
-  pinMode (_powerPin, INPUT_PULLUP);
-  pinMode (_resistancePin, INPUT_PULLUP);
-  pinMode (_battaryPin, INPUT_PULLUP);
+  pinMode (_calibratePin, INPUT_PULLUP);
+  pinMode (_modeSelectPin, INPUT_PULLUP);
   pinMode (_fanPin, OUTPUT);
   pinMode (_temperatureAddr, INPUT);
 }
@@ -213,14 +214,14 @@ void DcLoad::_setOperatingMode(int operatingMode) {
   switch (_operatingMode){
     case 1:
       _operatingModeDisplay = "CC";
-      _operatingModeUnit = "mA";
+      _operatingModeUnit = "A";
       _operatingModeSetting = "Set I = ";
       _operatingModeOn = "DC LOAD ON ";
       _operatingModeOff = "DC LOAD OFF";
       break;
     case 2:
       _operatingModeDisplay = "CP";
-      _operatingModeUnit = "mW";
+      _operatingModeUnit = "W";
       _operatingModeSetting = "Set W = ";
       _operatingModeOn = "DC LOAD ON ";
       _operatingModeOff = "DC LOAD OFF";
@@ -234,7 +235,7 @@ void DcLoad::_setOperatingMode(int operatingMode) {
       break;
       case 4:
         _operatingModeDisplay = "BC";
-        _operatingModeUnit = "mA";
+        _operatingModeUnit = "A";
         _operatingModeSetting = "Set I = ";
         _operatingModeOn = "BATTERY ON ";
         _operatingModeOff = "BATTERY OFF";
@@ -330,34 +331,17 @@ void DcLoad::_safteyCheck(){
  * 3 = CR (Constant Resistance)
  */
 void DcLoad::_switchOperatingMode(){
-  // check if Constant Current button pressed
   boolean changed = false;
-  if(digitalRead(_currentPin) == LOW) {
-    _setOperatingMode(1);
-    changed=true;
-  }
-  // check if Constant Power button pressed
-  if(digitalRead(_powerPin) == LOW) {
-    _setOperatingMode(2);
-    changed=true;
-  }
-  // check if Constant Resistance button pressed
-  if(digitalRead(_resistancePin) == LOW) {
-    _setOperatingMode(3);
-    changed=true;
-  }
-  // check if Battery test button pressed
-  if(digitalRead(_battaryPin) == LOW) {
+  // check if mode select button was pressed and cycle through the modes
+  if(digitalRead(_modeSelectPin) == LOW) {
     delay(200);
-    _setOperatingMode(4);
-    /*
+    //_setOperatingMode(4);
     if (_operatingMode == 4) {
       _operatingMode = 1;
     } else {
       _operatingMode++;
     }
     _setOperatingMode(_operatingMode);
-    */
     changed=true;
   }
   if (changed){
@@ -368,6 +352,41 @@ void DcLoad::_switchOperatingMode(){
       _batteryLifePrevious = 0;
       _loadOff();
       _lcdOperatingMode();
+  }
+}
+
+void DcLoad::_calibrate(){
+  // check if Constant Current button pressed
+  if(digitalRead(_calibratePin) == LOW) {
+    _lcd->clear();
+    _lcd->setCursor(0, 0);
+    _lcd->print("Calibrating...");
+    delay(1000);
+    // the input voltage should be set to 0 volts
+    // then read the ADC values and use these readings as an offset
+    // when converting the digital readings to floats
+    _getAdcVolatgeAndCurrent();
+    _voltageOffset = _voltage;
+    _currentOffset = _current;
+    Serial.print("V Offset: ");
+    Serial.println(_voltageOffset);
+    Serial.print("I Offset: ");
+    Serial.println(_currentOffset);
+    _lcd->setCursor(0, 1);
+    _lcd->print("ADC V Offest: ");
+    _lcd->print(_voltageOffset);
+    _lcd->setCursor(0, 2);
+    _lcd->print("ADC I Offest: ");
+    _lcd->print(_currentOffset);
+    delay(2000);
+    // revert back to the currently selected operating mode
+    _lcd->clear();
+    _lcdOperatingMode();
+    _lcdLoadStatus();
+    // update the encoder reading
+    _lcdUpdateEncoderReading(true);
+    //set the cursor position
+    _lcdSetCursor();
   }
 }
 
@@ -462,11 +481,13 @@ void DcLoad::_lcdOperatingMode(){
   }
 }
 
-void DcLoad::_lcdUpdateEncoderReading(){
+void DcLoad::_lcdUpdateEncoderReading(boolean forceUpdate){
 
   // only update the display if the _encoderReading has changed from it's
   // last setting
-  if (_encoderPosition != _encoderPositionPrevious) {
+  if (_encoderPosition != _encoderPositionPrevious || forceUpdate == true) {
+    Serial.print("Encoder Reading: ");
+    Serial.println(_encoderReading);
     _encoderReading = _encoderPosition / 1000;
     // start position of setting cusor position (indicates which digit will change)
     _lcd->setCursor(8,2);
@@ -484,8 +505,8 @@ void DcLoad::_lcdUpdateEncoderReading(){
 
 void DcLoad::_lcdUpdateAdcReading(){
   // get the readable values for current and voltage from the DC load class
-  _actualCurrent = _convertAdcVoltageOrCurrent(_current,4);
-  _actualVoltage = _convertAdcVoltageOrCurrent(_voltage,50);
+  _actualCurrent = _convertAdcVoltageOrCurrent((_current - _currentOffset),4);
+  _actualVoltage = _convertAdcVoltageOrCurrent((_voltage - _voltageOffset),50);
   // calculate the power in watts
   _actualPower = _actualCurrent * _actualVoltage;
   // set the number of decimal places for the voltage
@@ -517,8 +538,8 @@ void DcLoad::_lcdLoadStatus(){
 }
 
 void DcLoad::_lcdTemperatureStatus(){
-  _lcd->setCursor(16,0);
-  _lcd->print(_tempSensor.celsius(),0);
+  _lcd->setCursor(14,0);
+  _lcd->print(_tempSensor.celsius(),1);
   _lcd->print((char)0xDF);
   _lcd->print("C");
   _lcd->setCursor(11,2);
@@ -577,7 +598,7 @@ void DcLoad::_lcdSafteyStatus(){
     switch (_safetyStatus) {
       case 1:
         _lcd->setCursor(0,3);
-        _lcd->print("Max power exceeded");
+        _lcd->print("Max power exceeded  ");
         delay(2000);
         break;
       case 2:

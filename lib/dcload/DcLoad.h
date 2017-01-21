@@ -13,17 +13,16 @@
 class DcLoad {
   public:
     DcLoad (uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
-            uint8_t adcI2cAddress, uint8_t timerAddress, byte rotaryEncoderPinA,
-            byte rotaryEncoderPinB, byte cursorPositionPin,
-            byte loadTogglePin,byte currentPin,
-            byte resistancePin, byte powerPin,
-            byte battaryPin, byte fanPin,
-            byte temperatureAddr, int fanTempMin,
-            int fanTempMax);
+                  uint8_t adcI2cAddress, uint8_t timerAddress,
+                  byte rotaryEncoderPinA, byte rotaryEncoderPinB,
+                  byte cursorPositionPin, byte loadTogglePin,
+                  byte calibratePin, byte modeSelectPin,
+                  byte fanPin, byte temperatureAddr,
+                  int fanTMin, int fanTMax);
     void setup(int initialOperatingMode, int welcomeDisplayMs);
     void run();
     void setRotaryEncoderPosition();
-    void setSafetyLimits(float voltage, float current, float power, 
+    void setSafetyLimits(float voltage, float current, float power,
                          float temperature, float batterCurrent);
   private:
     // setup methods
@@ -40,6 +39,7 @@ class DcLoad {
     void _safteyCheck();
     // event handlers
     void _switchOperatingMode();
+    void _calibrate();
     void _setCursorPosition();
     void _toggleLoad();
     void _toggleTimer();
@@ -48,7 +48,7 @@ class DcLoad {
     // lcd methods
     void _lcdWelcome(int displayMs);
     void _lcdOperatingMode();
-    void _lcdUpdateEncoderReading();
+    void _lcdUpdateEncoderReading(boolean forceUpdate);
     void _lcdUpdateAdcReading();
     void _lcdLoadStatus();
     void _lcdTemperatureStatus();
@@ -77,10 +77,8 @@ class DcLoad {
     byte _rotaryEncoderPinB;
     byte _cursorPositionPin;
     byte _loadTogglePin;
-    byte _currentPin;
-    byte _resistancePin;
-    byte _powerPin;
-    byte _battaryPin;
+    byte _calibratePin;
+    byte _modeSelectPin;
     byte _fanPin;
     byte _temperatureAddr;
     // cursor/encoder control properties
@@ -94,6 +92,8 @@ class DcLoad {
     // voltage and current properties
     long _current;
     long _voltage;
+    long _currentOffset;
+    long _voltageOffset;
     float _actualVoltage;
     float _actualCurrent;
     float _actualPower;

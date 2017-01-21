@@ -10,6 +10,17 @@
 #include "FanController.h"
 #include "MCP79410_Timer.h"
 
+#define BATTERY_LIST_LENGTH 10 // store up to 5 Batteries
+
+class Battery {
+  public:
+    Battery(void);
+    Battery(String name, float vMax, float vCutoff );
+    String name;
+    float vMax;
+    float vCutoff;
+};
+
 class DcLoad {
   public:
     DcLoad (uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
@@ -17,8 +28,9 @@ class DcLoad {
                   byte rotaryEncoderPinA, byte rotaryEncoderPinB,
                   byte cursorPositionPin, byte loadTogglePin,
                   byte calibratePin, byte modeSelectPin,
+                  byte batterySelectPin,
                   byte fanPin, byte temperatureAddr,
-                  int fanTMin, int fanTMax);
+                  int fanTMin, int fanTMax, Battery batteryList[]);
     void setup(int initialOperatingMode, int welcomeDisplayMs);
     void run();
     void setRotaryEncoderPosition();
@@ -45,6 +57,7 @@ class DcLoad {
     void _toggleTimer();
     void _loadOn();
     void _loadOff();
+    void _switchSelectedBattery();
     // lcd methods
     void _lcdWelcome(int displayMs);
     void _lcdOperatingMode();
@@ -58,6 +71,7 @@ class DcLoad {
     void _lcdSafteyStatus();
     void _lcdClearLine(int lineNumber);
     void _lcdClearBatteryWarning();
+    void _lcdDisplaySelectedBattery();
     // helper methods
     float _convertAdcVoltageOrCurrent(long inputValue, int multiplier);
     // PRIVATE PROPERTIES
@@ -79,6 +93,7 @@ class DcLoad {
     byte _loadTogglePin;
     byte _calibratePin;
     byte _modeSelectPin;
+    byte _batterySelectPin;
     byte _fanPin;
     byte _temperatureAddr;
     // cursor/encoder control properties
@@ -123,6 +138,9 @@ class DcLoad {
     float _batteryCutOff;
     float _batteryLife;
     float _batteryLifePrevious;
+    Battery _batteryList[BATTERY_LIST_LENGTH];
+    int _numberOfBatteries;
+    int _selectedBattery;
 };
 
 #endif

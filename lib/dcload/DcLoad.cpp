@@ -1,12 +1,24 @@
 #include "DcLoad.h"
 
+Battery::Battery(void){
+  name = "";
+  vMax = 0;
+  vCutoff = 0;
+}
+
+Battery::Battery(String pname, float pvMax, float pvCutoff){
+  name = pname;
+  vMax = pvMax;
+  vCutoff = pvCutoff;
+}
+
 DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
               uint8_t adcI2cAddress, uint8_t timerAddress,
               byte rotaryEncoderPinA, byte rotaryEncoderPinB,
               byte cursorPositionPin, byte loadTogglePin,
-              byte calibratePin, byte modeSelectPin,
+              byte calibratePin, byte modeSelectPin, byte batterySelectPin,
               byte fanPin, byte temperatureAddr,
-              int fanTMin, int fanTMax){
+              int fanTMin, int fanTMax, Battery batteryList[]){
   // store the inputs as private properities
   _dacI2cAddress = dacI2cAddress;
   // create instances of the LCD, DAC, ADC, LM35 and FanController for use by DcLoad
@@ -24,7 +36,7 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   _loadTogglePin = loadTogglePin;
   _calibratePin = calibratePin;
   _modeSelectPin = modeSelectPin;
-
+  _batterySelectPin = batterySelectPin;
   // set cursor/encoder control properties
   _cursorFactor = 0;
   _cursorPosition = 9;
@@ -39,16 +51,28 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   _currentOffset = 0;
   _voltageOffset = 0;
   _dacControlVoltage = 0;
-  _dacInputRange = 5000;
+  _dacInputRange = 4600; //5000;
   _dacVref = 4096;
   _currentCalibrationFactor = 1;
   _operatingMode = 0;
   // set load status
   _loadStatus = false;
   // battery values
-  _batteryCutOff = 3.0;
   _batteryLife = 0;
   _batteryLifePrevious = 0;
+  // fill the battery list
+  _numberOfBatteries = 0;
+  for (int i=0; i < BATTERY_LIST_LENGTH; i++){
+    _batteryList[i] = batteryList[i];
+    if (batteryList[i].vMax > 0){
+      _numberOfBatteries++;
+    }
+  }
+  // select the first battery by default
+  _selectedBattery = 0;
+  // set the battery cut off to that of the first battery
+  _batteryCutOff = _batteryList[_selectedBattery].vCutoff;
+
   // safety values
   _tempMax = 35.0;
   _powerMax = 5.0;
@@ -95,6 +119,9 @@ void DcLoad::setup(int initialOperatingMode, int welcomeDisplayMs){
 void DcLoad::run(){
   // check if the caalibration button has been pressed
   _calibrate();
+  // check if the battery select button was pressed and switch the battery
+  // if in Battery Capacity mode
+  _switchSelectedBattery();
   // check if the operating mode has been changed and update
   // the display if required
   _switchOperatingMode();
@@ -199,6 +226,7 @@ void DcLoad::_setupPins(){
   pinMode (_loadTogglePin, INPUT_PULLUP);
   pinMode (_cursorPositionPin, INPUT_PULLUP);
   pinMode (_calibratePin, INPUT_PULLUP);
+  pinMode (_batterySelectPin, INPUT_PULLUP);
   pinMode (_modeSelectPin, INPUT_PULLUP);
   pinMode (_fanPin, OUTPUT);
   pinMode (_temperatureAddr, INPUT);
@@ -237,8 +265,8 @@ void DcLoad::_setOperatingMode(int operatingMode) {
         _operatingModeDisplay = "BC";
         _operatingModeUnit = "A";
         _operatingModeSetting = "Set I = ";
-        _operatingModeOn = "BATTERY ON ";
-        _operatingModeOff = "BATTERY OFF";
+        _operatingModeOn = _batteryList[_selectedBattery].name + " ON    ";
+        _operatingModeOff = _batteryList[_selectedBattery].name + " OFF   ";
         break;
   }
 }
@@ -345,13 +373,14 @@ void DcLoad::_switchOperatingMode(){
     changed=true;
   }
   if (changed){
+      _lcdOperatingMode();
       _timer.reset();
       _encoderPosition = 0;
       _encoderPositionPrevious = -1;
       _batteryLife = 0;
       _batteryLifePrevious = 0;
       _loadOff();
-      _lcdOperatingMode();
+
   }
 }
 
@@ -368,10 +397,6 @@ void DcLoad::_calibrate(){
     _getAdcVolatgeAndCurrent();
     _voltageOffset = _voltage;
     _currentOffset = _current;
-    Serial.print("V Offset: ");
-    Serial.println(_voltageOffset);
-    Serial.print("I Offset: ");
-    Serial.println(_currentOffset);
     _lcd->setCursor(0, 1);
     _lcd->print("ADC V Offest: ");
     _lcd->print(_voltageOffset);
@@ -441,6 +466,28 @@ void DcLoad::_loadOn(){
   _lcdLoadStatus();
 }
 
+void DcLoad::_switchSelectedBattery(){
+  if (_operatingMode == 4) {
+    if(digitalRead(_batterySelectPin) == LOW) {
+      delay(200);
+      _selectedBattery++;
+      if (_selectedBattery > (_numberOfBatteries - 2)){
+        _selectedBattery = 0;
+      }
+      _batteryCutOff = _batteryList[_selectedBattery].vCutoff;
+      _lcdDisplaySelectedBattery();
+      _timer.reset();
+      _encoderPosition = 0;
+      _encoderPositionPrevious = -1;
+      _batteryLife = 0;
+      _batteryLifePrevious = 0;
+      _loadOff();
+      _setOperatingMode(4);
+      _lcdOperatingMode();
+    }
+  }
+}
+
 // private LCD display methods
 void DcLoad::_lcdWelcome(int displayMs){
   _lcd->setCursor(6,0);
@@ -486,8 +533,6 @@ void DcLoad::_lcdUpdateEncoderReading(boolean forceUpdate){
   // only update the display if the _encoderReading has changed from it's
   // last setting
   if (_encoderPosition != _encoderPositionPrevious || forceUpdate == true) {
-    Serial.print("Encoder Reading: ");
-    Serial.println(_encoderReading);
     _encoderReading = _encoderPosition / 1000;
     // start position of setting cusor position (indicates which digit will change)
     _lcd->setCursor(8,2);
@@ -587,13 +632,12 @@ void DcLoad::_lcdDisplayBatteryLife(){
       _lcd->print("0");
     }
       _lcd->print(_batteryLife,0);
-
     _batteryLifePrevious = _batteryLife;
   }
 }
 
 void DcLoad::_lcdSafteyStatus(){
-  if (_safetyStatus != _safetyStatusPervious){
+  if (_safetyStatus != _safetyStatusPervious && _safetyStatus != 0){
     _lcdClearLine(3);
     switch (_safetyStatus) {
       case 1:
@@ -630,10 +674,27 @@ void DcLoad::_lcdClearLine(int lineNumber){
 void DcLoad::_lcdClearBatteryWarning(){
   if (_safetyStatus != _safetyStatusPervious && _safetyStatus == 0) {
     _lcd->setCursor(8, 3);
-    _lcd->print("     ");
+    _lcd->print("    ");
     _lcd->setCursor(17, 3);
     _lcd->print("mAh");
   }
+}
+
+void DcLoad::_lcdDisplaySelectedBattery(){
+  _lcd->clear();
+  _lcd->setCursor(0,0);
+  _lcd->print("Selected Battery");
+  _lcd->setCursor(0,1);
+  _lcd->print("Name: ");
+  _lcd->print(_batteryList[_selectedBattery].name);
+  _lcd->setCursor(0,2);
+  _lcd->print("V(Max):    ");
+  _lcd->print(_batteryList[_selectedBattery].vMax);
+  _lcd->setCursor(0,3);
+  _lcd->print("V(CutOff): ");
+  _lcd->print(_batteryList[_selectedBattery].vCutoff);
+  delay(2000);
+  _lcd->clear();
 }
 
 // helper methods

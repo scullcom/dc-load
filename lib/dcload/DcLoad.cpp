@@ -45,6 +45,10 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   _operatingMode = 0;
   // set load status
   _loadStatus = false;
+  // battery values
+  _batteryCutOff = 3.0;
+  _batteryLife = 0;
+  _batteryLifePrevious = 0;
 }
 
 // Public methods
@@ -76,6 +80,8 @@ void DcLoad::setup(int initialOperatingMode, int welcomeDisplayMs){
   _setDacControlVoltage();
   // check the temperature, start fan if required and output to display
   _fanControl();
+  //reset the timer
+  _timer.reset();
 }
 
 void DcLoad::run(){
@@ -94,6 +100,23 @@ void DcLoad::run(){
   _setCursorPosition();
   // check the load status and toggle if required
   _toggleLoad();
+  // Batter Capacity specific actions
+  if (_operatingMode == 4){
+    // turn off the load if the battery has reached the cut off voltage
+    if (_actualVoltage <= _batteryCutOff){
+      _loadOff();
+    }
+    //start and stop the timer according to the load
+    _toggleTimer();
+    // print the timer
+    _lcdDisplayTime();
+    //calculate the mAh
+    _calculateBatteryLife();
+    // display battery life
+    _lcdDisplayBatteryLife();
+  }
+  // send the control voltage to the DAC
+  _setDacControlVoltage();
   // send the control voltage to the DAC
   _setDacControlVoltage();
   // check the temperature, start fan if required and output to display
@@ -212,6 +235,7 @@ void DcLoad::_setDacControlVoltage(){
     float tempCurrent = 0;
     switch (_operatingMode) {
       case 1:
+      case 4:
         tempCurrent = _encoderPosition;
         _dacControlVoltage = (tempCurrent / (_dacInputRange/_dacVref) ) *
                               _currentCalibrationFactor;
@@ -226,11 +250,6 @@ void DcLoad::_setDacControlVoltage(){
         _dacControlVoltage = (tempCurrent / (_dacInputRange/_dacVref) ) *
                               _currentCalibrationFactor;
         break;
-        case 4:
-          tempCurrent = _encoderPosition;
-          _dacControlVoltage = (tempCurrent / (_dacInputRange/_dacVref) ) *
-                                _currentCalibrationFactor;
-          break;
     }
   } else {
     _dacControlVoltage = 0;
@@ -249,6 +268,7 @@ void DcLoad::_setDacControlVoltage(){
   _dac.setVoltage(dacValue,false);
 }
 
+
 /*
  * void fanControl
  * reads the temperature of the heatsink and controls the fan speed
@@ -257,6 +277,17 @@ void DcLoad::_fanControl() {
   // read the temperature
   _fanController.adjustToTemperature(_tempSensor.celsius());
   _lcdTemperatureStatus();
+}
+
+void DcLoad::_calculateBatteryLife(){
+  float secondsElapsed = _timer.getTotalSeconds();
+  Serial.print("SECONDS: ");
+  Serial.println(secondsElapsed);
+  _batteryLife = round((_actualCurrent * 1000)*(secondsElapsed/3600));
+  Serial.print("BATTERY LIFE: ");
+  Serial.println(_batteryLife);
+  Serial.print("BATTERY LIFE PREVIOUS: ");
+  Serial.println(_batteryLifePrevious);
 }
 
 // private event handlers
@@ -286,12 +317,24 @@ void DcLoad::_switchOperatingMode(){
   }
   // check if Battery test button pressed
   if(digitalRead(_battaryPin) == LOW) {
+    delay(200);
     _setOperatingMode(4);
+    /*
+    if (_operatingMode == 4) {
+      _operatingMode = 1;
+    } else {
+      _operatingMode++;
+    }
+    _setOperatingMode(_operatingMode);
+    */
     changed=true;
   }
   if (changed){
+      _timer.reset();
       _encoderPosition = 0;
       _encoderPositionPrevious = -1;
+      _batteryLife = 0;
+      _batteryLifePrevious = 0;
       _loadOff();
       _lcdOperatingMode();
   }
@@ -333,6 +376,14 @@ void DcLoad::_toggleLoad(){
   }
 }
 
+void DcLoad::_toggleTimer(){
+  if (_loadStatus){
+    _timer.start();
+  } else {
+    _timer.stop();
+  }
+}
+
 void DcLoad::_loadOff(){
   _loadStatus = false;
   _lcdLoadStatus();
@@ -367,6 +418,16 @@ void DcLoad::_lcdOperatingMode(){
   _lcd->print(_operatingModeSetting);
   _lcd->setCursor(14,2);
   _lcd->print(_operatingModeUnit);
+  //display extra info for battery test
+  if (_operatingMode == 4){
+    _lcd->setCursor(0,3);
+    _lcd->print("00:00:00");
+    _lcd->setCursor(13,3);
+    _lcd->print("0000mAh");
+  } else {
+    _lcd->setCursor(0,3);
+    _lcd->print("                    ");
+  }
 }
 
 void DcLoad::_lcdUpdateEncoderReading(){
@@ -454,6 +515,34 @@ void DcLoad::_lcdSetCursor(){
     _lcd->setCursor(_cursorPosition,2);
     _lcd->cursor();
 }
+
+void DcLoad::_lcdDisplayTime(){
+  _lcd->setCursor(0, 3);
+  _lcd->print(_timer.getTime());
+}
+
+void DcLoad::_lcdDisplayBatteryLife(){
+  //only update LCD (mAh) if BatteryLife has increased
+  if(_batteryLife >= _batteryLifePrevious){
+    //add a 3 leading zero to display if reading less than 10
+    _lcd->setCursor(13,3);
+    if (_batteryLife < 10) {
+      _lcd->print("000");
+    }
+    //add a 2 leading zero to display
+    if (_batteryLife >= 10 && _batteryLife <100){
+      _lcd->print("00");
+    }
+    //add a 1 leading zero to display
+    if (_batteryLife >= 100 && _batteryLife <1000){
+      _lcd->print("0");
+    }
+      _lcd->print(_batteryLife,0);
+
+    _batteryLifePrevious = _batteryLife;
+  }
+}
+
 
 // helper methods
 /*

@@ -49,6 +49,14 @@ DcLoad::DcLoad(uint8_t lcdI2cAddress, uint8_t dacI2cAddress,
   _batteryCutOff = 3.0;
   _batteryLife = 0;
   _batteryLifePrevious = 0;
+  // safety values
+  _tempMax = 35.0;
+  _powerMax = 5.0;
+  _batteryMaxCurrent = 1.0;
+  _voltsMax = 15.0;
+  _currentMax = 3.0;
+  _safetyStatus = 0;
+  _safetyStatusPervious = 0;
 }
 
 // Public methods
@@ -100,23 +108,36 @@ void DcLoad::run(){
   _setCursorPosition();
   // check the load status and toggle if required
   _toggleLoad();
-  // Batter Capacity specific actions
-  if (_operatingMode == 4){
-    // turn off the load if the battery has reached the cut off voltage
-    if (_actualVoltage <= _batteryCutOff){
-      _loadOff();
+  // check that the DC load is operating in safe limits
+  _safteyCheck();
+  if (_safetyStatus == 0) {
+    // Operating within safety parameters
+    // Update the safety status if required
+    _lcdSafteyStatus();
+    // Batter Capacity specific actions
+    if (_operatingMode == 4){
+      //Clear the battery wanring from the lcd if required
+      _lcdClearBatteryWarning();
+      // turn off the load if the battery has reached the cut off voltage
+      if (_actualVoltage <= _batteryCutOff){
+        _loadOff();
+      }
+      //start and stop the timer according to the load
+      _toggleTimer();
+      // print the timer
+      _lcdDisplayTime();
+      //calculate the mAh
+      _calculateBatteryLife();
+      // display battery life
+      _lcdDisplayBatteryLife();
     }
-    //start and stop the timer according to the load
-    _toggleTimer();
-    // print the timer
-    _lcdDisplayTime();
-    //calculate the mAh
-    _calculateBatteryLife();
-    // display battery life
-    _lcdDisplayBatteryLife();
+  } else{
+    // DC load is outside of safe limits, turn off and display warning
+    _loadOff();
+    _lcdSafteyStatus();
   }
-  // send the control voltage to the DAC
-  _setDacControlVoltage();
+  // store the last safteyStatus for comparison
+  _safetyStatusPervious = _safetyStatus;
   // send the control voltage to the DAC
   _setDacControlVoltage();
   // check the temperature, start fan if required and output to display
@@ -137,6 +158,15 @@ void DcLoad::setRotaryEncoderPosition(){
     _encoderPosition = min(_encoderMax, max(0, _encoderPosition));
     lastInterruptTime = interruptTime;
   }
+}
+
+void DcLoad::setSafetyLimits(float voltage, float current, float power,
+                     float temperature, float batterCurrent){
+   _tempMax = temperature;
+   _powerMax = power;
+   _batteryMaxCurrent = batterCurrent;
+   _voltsMax = voltage;
+   _currentMax = current;
 }
 
 // PRIVATE - setup methods
@@ -254,16 +284,7 @@ void DcLoad::_setDacControlVoltage(){
   } else {
     _dacControlVoltage = 0;
   }
-  Serial.print("DAC Control Voltage: ");
-  Serial.println(_dacControlVoltage);
-
-
-
   unsigned long dacValue = _dacControlVoltage;
-
-  Serial.print("DAC Value: ");
-  Serial.println(dacValue);
-
   // send the control voltage to the DAC
   _dac.setVoltage(dacValue,false);
 }
@@ -281,13 +302,23 @@ void DcLoad::_fanControl() {
 
 void DcLoad::_calculateBatteryLife(){
   float secondsElapsed = _timer.getTotalSeconds();
-  Serial.print("SECONDS: ");
-  Serial.println(secondsElapsed);
   _batteryLife = round((_actualCurrent * 1000)*(secondsElapsed/3600));
-  Serial.print("BATTERY LIFE: ");
-  Serial.println(_batteryLife);
-  Serial.print("BATTERY LIFE PREVIOUS: ");
-  Serial.println(_batteryLifePrevious);
+}
+
+void DcLoad::_safteyCheck(){
+  if (_actualPower > _powerMax){
+    _safetyStatus = 1;
+  } else if (_tempSensor.celsius() > _tempMax) {
+    _safetyStatus = 2;
+  } else if (_operatingMode == 4 && _encoderReading > _batteryMaxCurrent ) {
+    _safetyStatus = 3;
+  } else if(_actualVoltage > _voltsMax) {
+    _safetyStatus = 4;
+  } else if(_actualCurrent > _currentMax) {
+    _safetyStatus = 5;
+  } else {
+    _safetyStatus = 0;
+  }
 }
 
 // private event handlers
@@ -410,8 +441,12 @@ void DcLoad::_lcdWelcome(int displayMs){
 }
 
 void DcLoad::_lcdOperatingMode(){
-  _lcd->setCursor(0,2);
-  _lcd->print("                ");
+  //_lcd->setCursor(0,2);
+  //_lcd->print("                ");
+  _lcdClearLine(2);
+  if (_safetyStatus != _safetyStatusPervious && _safetyStatus == 0){
+    _lcdClearLine(3);
+  }
   _lcd->setCursor(18,2);
   _lcd->print(_operatingModeDisplay);
   _lcd->setCursor(0,2);
@@ -436,11 +471,6 @@ void DcLoad::_lcdUpdateEncoderReading(){
   // last setting
   if (_encoderPosition != _encoderPositionPrevious) {
     _encoderReading = _encoderPosition / 1000;
-
-    Serial.print("EncoderPosition: ");
-    Serial.println(_encoderPosition);
-    Serial.print("EncoderReading: ");
-    Serial.println(_encoderReading);
     // start position of setting cusor position (indicates which digit will change)
     _lcd->setCursor(8,2);
     // ensure leading zero's are displayed
@@ -519,11 +549,12 @@ void DcLoad::_lcdSetCursor(){
 void DcLoad::_lcdDisplayTime(){
   _lcd->setCursor(0, 3);
   _lcd->print(_timer.getTime());
+  _lcd->print("     ");
 }
 
 void DcLoad::_lcdDisplayBatteryLife(){
   //only update LCD (mAh) if BatteryLife has increased
-  if(_batteryLife >= _batteryLifePrevious){
+  if(_batteryLife >= _batteryLifePrevious && _safetyStatus == 0){
     //add a 3 leading zero to display if reading less than 10
     _lcd->setCursor(13,3);
     if (_batteryLife < 10) {
@@ -543,6 +574,49 @@ void DcLoad::_lcdDisplayBatteryLife(){
   }
 }
 
+void DcLoad::_lcdSafteyStatus(){
+  if (_safetyStatus != _safetyStatusPervious){
+    _lcdClearLine(3);
+    switch (_safetyStatus) {
+      case 1:
+        _lcd->setCursor(0,3);
+        _lcd->print("Max power exceeded");
+        delay(2000);
+        break;
+      case 2:
+        _lcd->setCursor(0,3);
+        _lcd->print("Max temp exceeded");
+        break;
+      case 3:
+        _lcd->setCursor(0,3);
+        _lcd->print("Bat current exceeded");
+        break;
+      case 4:
+        _lcd->setCursor(0,3);
+        _lcd->print("Max voltage exceeded");
+        break;
+        case 5:
+          _lcd->setCursor(0,3);
+          _lcd->print("Max current exceeded");
+          delay(2000);
+          break;
+    }
+  }
+}
+
+void DcLoad::_lcdClearLine(int lineNumber){
+  _lcd->setCursor(0,lineNumber);
+  _lcd->print("                    ");
+}
+
+void DcLoad::_lcdClearBatteryWarning(){
+  if (_safetyStatus != _safetyStatusPervious && _safetyStatus == 0) {
+    _lcd->setCursor(8, 3);
+    _lcd->print("     ");
+    _lcd->setCursor(17, 3);
+    _lcd->print("mAh");
+  }
+}
 
 // helper methods
 /*

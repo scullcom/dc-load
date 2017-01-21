@@ -23,6 +23,8 @@ class DcLoad {
     void setup(int initialOperatingMode, int welcomeDisplayMs);
     void run();
     void setRotaryEncoderPosition();
+    void setSafetyLimits(float voltage, float current, float power, 
+                         float temperature, float batterCurrent);
   private:
     // setup methods
     void _setupLcd();
@@ -35,6 +37,7 @@ class DcLoad {
     void _setDacControlVoltage();
     void _fanControl();
     void _calculateBatteryLife();
+    void _safteyCheck();
     // event handlers
     void _switchOperatingMode();
     void _setCursorPosition();
@@ -52,6 +55,9 @@ class DcLoad {
     void _lcdSetCursor();
     void _lcdDisplayBatteryLife();
     void _lcdDisplayTime();
+    void _lcdSafteyStatus();
+    void _lcdClearLine(int lineNumber);
+    void _lcdClearBatteryWarning();
     // helper methods
     float _convertAdcVoltageOrCurrent(long inputValue, int multiplier);
     // PRIVATE PROPERTIES
@@ -85,12 +91,6 @@ class DcLoad {
     volatile float _encoderPosition;
     float _encoderReading;
     volatile unsigned int _encoderPositionPrevious;
-    // fan control properties
-    int _fanTemp;
-    int _fanSpeed;
-    int _fanTempMax;
-    int _fanTempMin;
-    int _fanStatus;
     // voltage and current properties
     long _current;
     long _voltage;
@@ -101,6 +101,14 @@ class DcLoad {
     float _currentCalibrationFactor;
     float _dacInputRange;
     float _dacVref;
+    // protection properties
+    float _tempMax;
+    float _powerMax;
+    float _voltsMax;
+    float _currentMax;
+    float _batteryMaxCurrent;
+    int _safetyStatus;
+    int _safetyStatusPervious;
     // the status of the DC load (true = on, false = off)
     boolean _loadStatus;
     // properties to store the operating mode
